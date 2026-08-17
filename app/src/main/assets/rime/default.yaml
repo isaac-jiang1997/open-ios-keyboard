@@ -1,0 +1,38 @@
+# Rime default configuration for Open Phone Layout Keyboard.
+# Runtime data is copied into app-private storage; no network service is used.
+
+config_version: "2026-05-16"
+
+schema_list:
+  - schema: openphone_pinyin
+  - schema: openphone_t9
+
+menu:
+  page_size: 9
+
+switcher:
+  caption: "输入方案"
+  hotkeys: []
+  save_options:
+    - ascii_mode
+
+ascii_composer:
+  good_old_caps_lock: true
+  switch_key:
+    Shift_L: noop
+    Shift_R: noop
+    Control_L: noop
+    Control_R: noop
+    Caps_Lock: noop
+    Eisu_toggle: noop
+
+punctuator:
+  import_preset: symbols
+
+key_binder:
+  import_preset: default
+
+recognizer:
+  import_preset: default
+  patterns:
+    punct: "^/([0-9]0?|[A-Za-z]+)$"

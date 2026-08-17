@@ -1,0 +1,39 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="30dp"
+    android:height="30dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+
+    <!-- iOS-style dictation microphone; self-drawn vector, transparent background. -->
+    <path
+        android:pathData="M32,8 C26,8 21,13 21,19 L21,34 C21,40.1 26,45 32,45 C38,45 43,40.1 43,34 L43,19 C43,13 38,8 32,8 Z"
+        android:fillColor="#00000000"
+        android:strokeColor="#5F6670"
+        android:strokeWidth="3.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <path
+        android:pathData="M15.5,32.5 C15.5,44 24,52.5 32,52.5 C40,52.5 48.5,44 48.5,32.5"
+        android:fillColor="#00000000"
+        android:strokeColor="#5F6670"
+        android:strokeWidth="3.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <path
+        android:pathData="M32,52.5 L32,60"
+        android:fillColor="#00000000"
+        android:strokeColor="#5F6670"
+        android:strokeWidth="3.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <path
+        android:pathData="M24,60 L40,60"
+        android:fillColor="#00000000"
+        android:strokeColor="#5F6670"
+        android:strokeWidth="3.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

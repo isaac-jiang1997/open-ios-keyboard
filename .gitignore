@@ -1,0 +1,13 @@
+.gradle/
+.cxx/
+app/.cxx/
+.kiro/
+.idea/
+*.iml
+build/
+app/build/
+local.properties
+captures/
+*.apk
+*.aab
+app/.jqwik-database

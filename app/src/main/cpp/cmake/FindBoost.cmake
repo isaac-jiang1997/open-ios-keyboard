@@ -1,0 +1,5 @@
+set(Boost_FOUND TRUE)
+set(Boost_INCLUDE_DIRS "${OPENKEYBOARD_BOOST_ROOT}")
+foreach(boost_library IN LISTS BOOST_INCLUDE_LIBRARIES)
+    list(APPEND Boost_LIBRARIES Boost::${boost_library})
+endforeach()

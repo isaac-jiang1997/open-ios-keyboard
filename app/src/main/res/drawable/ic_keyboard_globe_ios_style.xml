@@ -1,0 +1,63 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="30dp"
+    android:height="30dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+
+    <!-- iOS-style keyboard language switch globe; self-drawn vector, transparent background. -->
+    <path
+        android:pathData="M32,8 C18.745,8 8,18.745 8,32 C8,45.255 18.745,56 32,56 C45.255,56 56,45.255 56,32 C56,18.745 45.255,8 32,8 Z"
+        android:fillColor="#00000000"
+        android:strokeColor="#5F6670"
+        android:strokeWidth="3.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <path
+        android:pathData="M32,8 L32,56"
+        android:fillColor="#00000000"
+        android:strokeColor="#5F6670"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <path
+        android:pathData="M32,8 C24,14.5 20,23.8 20,32 C20,40.2 24,49.5 32,56"
+        android:fillColor="#00000000"
+        android:strokeColor="#5F6670"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <path
+        android:pathData="M32,8 C40,14.5 44,23.8 44,32 C44,40.2 40,49.5 32,56"
+        android:fillColor="#00000000"
+        android:strokeColor="#5F6670"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <path
+        android:pathData="M10,32 L54,32"
+        android:fillColor="#00000000"
+        android:strokeColor="#5F6670"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <path
+        android:pathData="M12.5,22.5 C20.5,25.3 43.5,25.3 51.5,22.5"
+        android:fillColor="#00000000"
+        android:strokeColor="#5F6670"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <path
+        android:pathData="M12.5,41.5 C20.5,38.7 43.5,38.7 51.5,41.5"
+        android:fillColor="#00000000"
+        android:strokeColor="#5F6670"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

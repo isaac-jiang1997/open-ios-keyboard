@@ -1,0 +1,6 @@
+<resources>
+    <color name="onboarding_bg">#F5F6F8</color>
+    <color name="onboarding_text">#111111</color>
+    <color name="onboarding_subtle">#5E6268</color>
+    <color name="onboarding_button">#007AFF</color>
+</resources>

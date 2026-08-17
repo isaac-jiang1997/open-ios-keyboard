@@ -1,0 +1,20 @@
+<resources>
+    <string name="app_name">Open Phone Layout Keyboard</string>
+    <string name="ime_name">Open Phone Layout</string>
+    <string name="subtype_english">English (US)</string>
+    <string name="subtype_chinese_simplified">Simplified Chinese</string>
+    <string name="enable_keyboard">Enable keyboard</string>
+    <string name="switch_keyboard">Switch keyboard</string>
+    <string name="onboarding_title">Open Phone Layout</string>
+    <string name="onboarding_body">A fully open-source Android keyboard focused on matching the iPhone key layout and typing flow.</string>
+    <string name="custom_phrase_title">Custom phrases</string>
+    <string name="custom_phrase_pinyin_hint">Pinyin, e.g. nihao</string>
+    <string name="custom_phrase_text_hint">Phrase, e.g. 你好</string>
+    <string name="add_phrase">Add phrase</string>
+    <string name="clear_local_data">Clear local data</string>
+    <string name="clear_local_data_confirm">This will delete custom phrases, local candidate frequencies, and Rime learning data stored on this device.</string>
+    <string name="clear_local_data_confirm_action">Clear</string>
+    <string name="clear_local_data_done">Local keyboard data cleared</string>
+    <string name="clear_local_data_failed">Some local data could not be cleared</string>
+    <string name="privacy_note">Offline only. Learning data and custom phrases stay on this device.</string>
+</resources>
