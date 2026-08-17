@@ -2,8 +2,6 @@
 
 An open-source Android keyboard that follows the iOS keyboard layout and typing rhythm.
 
-[中文说明](README.zh-CN.md)
-
 ## Why
 
 Many people carry two phones but use an iPhone as their daily driver. On Android, the keys, symbol layers, language switch, and T9 entry are often not where muscle memory expects them. Typing feels split between two systems.
