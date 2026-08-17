@@ -127,7 +127,7 @@ bool ensure_session() {
 }  // namespace
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_dev_openkeyboard_applelayout_RimeNativeBridge_nativeInitialize(
+Java_dev_openkeyboard_ioskeyboard_RimeNativeBridge_nativeInitialize(
         JNIEnv* env, jclass, jstring shared_dir, jstring user_dir) {
     std::lock_guard<std::mutex> lock(g_mutex);
     std::string shared = to_string(env, shared_dir);
@@ -149,7 +149,7 @@ Java_dev_openkeyboard_applelayout_RimeNativeBridge_nativeInitialize(
     RIME_STRUCT(RimeTraits, traits);
     traits.shared_data_dir = shared.c_str();
     traits.user_data_dir = user.c_str();
-    traits.distribution_name = "Open Phone Layout Keyboard";
+    traits.distribution_name = "Open iOS Keyboard";
     traits.distribution_code_name = "openphone";
     traits.distribution_version = "1.0";
     traits.app_name = "rime.openphone";
@@ -168,7 +168,7 @@ Java_dev_openkeyboard_applelayout_RimeNativeBridge_nativeInitialize(
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL
-Java_dev_openkeyboard_applelayout_RimeNativeBridge_nativeSelectSchema(
+Java_dev_openkeyboard_ioskeyboard_RimeNativeBridge_nativeSelectSchema(
         JNIEnv* env, jclass, jstring schema_id) {
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!ensure_session()) {
@@ -183,7 +183,7 @@ Java_dev_openkeyboard_applelayout_RimeNativeBridge_nativeSelectSchema(
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL
-Java_dev_openkeyboard_applelayout_RimeNativeBridge_nativeProcessKey(
+Java_dev_openkeyboard_ioskeyboard_RimeNativeBridge_nativeProcessKey(
         JNIEnv* env, jclass, jint key_code) {
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!ensure_session()) {
@@ -194,7 +194,7 @@ Java_dev_openkeyboard_applelayout_RimeNativeBridge_nativeProcessKey(
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL
-Java_dev_openkeyboard_applelayout_RimeNativeBridge_nativeSelectCandidate(
+Java_dev_openkeyboard_ioskeyboard_RimeNativeBridge_nativeSelectCandidate(
         JNIEnv* env, jclass, jint index) {
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!ensure_session()) {
@@ -207,7 +207,7 @@ Java_dev_openkeyboard_applelayout_RimeNativeBridge_nativeSelectCandidate(
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL
-Java_dev_openkeyboard_applelayout_RimeNativeBridge_nativeCommitComposition(
+Java_dev_openkeyboard_ioskeyboard_RimeNativeBridge_nativeCommitComposition(
         JNIEnv* env, jclass) {
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!ensure_session()) {
@@ -218,7 +218,7 @@ Java_dev_openkeyboard_applelayout_RimeNativeBridge_nativeCommitComposition(
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL
-Java_dev_openkeyboard_applelayout_RimeNativeBridge_nativeClear(
+Java_dev_openkeyboard_ioskeyboard_RimeNativeBridge_nativeClear(
         JNIEnv* env, jclass) {
     std::lock_guard<std::mutex> lock(g_mutex);
     if (g_rime && g_session) {
@@ -228,14 +228,14 @@ Java_dev_openkeyboard_applelayout_RimeNativeBridge_nativeClear(
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL
-Java_dev_openkeyboard_applelayout_RimeNativeBridge_nativeSnapshot(
+Java_dev_openkeyboard_ioskeyboard_RimeNativeBridge_nativeSnapshot(
         JNIEnv* env, jclass) {
     std::lock_guard<std::mutex> lock(g_mutex);
     return snapshot_array(env);
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_dev_openkeyboard_applelayout_RimeNativeBridge_nativeFinalize(
+Java_dev_openkeyboard_ioskeyboard_RimeNativeBridge_nativeFinalize(
         JNIEnv*, jclass) {
     std::lock_guard<std::mutex> lock(g_mutex);
     if (g_rime) {

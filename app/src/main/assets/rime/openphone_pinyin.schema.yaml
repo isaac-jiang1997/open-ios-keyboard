@@ -75,6 +75,3 @@ zh_hans:
   option_name: zh_hans
   opencc_config: t2s.json
   tips: none
-
-__patch:
-  - grammar:/hant?

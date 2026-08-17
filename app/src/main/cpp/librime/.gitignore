@@ -7,7 +7,9 @@ include/*
 lib/*
 bin/*
 share/*
-deps/*/*
+# Keep vendored native dependencies in this Android tree.
+# googletest is unused because librime tests are disabled.
+deps/googletest/
 plugins/*/
 env.bat
 node_modules/

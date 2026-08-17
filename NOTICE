@@ -1,0 +1,38 @@
+Open iOS Keyboard
+Copyright 2026 Open iOS Keyboard contributors
+
+Licensing
+---------
+
+This repository and released APKs are a combined work licensed under
+GNU General Public License version 3 only (GPL-3.0-only).
+See LICENSE and LICENSES/GPL-3.0.txt.
+
+Original application code authored for this project — including the
+Android IME service, keyboard layout and drawing, candidate UI, JNI
+bridge, and project documentation — is additionally available under
+Apache License 2.0. See LICENSES/Apache-2.0.txt.
+
+You may reuse those original files under Apache-2.0 if you do not
+include GPL-licensed dictionaries or other GPL-licensed components.
+A distribution that includes Rime Ice dictionaries must be conveyed
+under GPL-3.0-only and must include the corresponding source.
+
+Third-party components keep their original licenses.
+See THIRD_PARTY_NOTICES.md.
+
+许可说明
+--------
+
+本仓库及发布的 APK 是合成作品，按 GNU 通用公共许可证第 3 版
+（仅限该版本，GPL-3.0-only）授权。见 LICENSE 与 LICENSES/GPL-3.0.txt。
+
+本项目原创的应用代码（Android 输入法服务、键位与绘制、候选栏、
+JNI 桥接和项目文档）另外按 Apache License 2.0 提供。
+见 LICENSES/Apache-2.0.txt。
+
+若不包含 GPL 词库或其他 GPL 组件，可以按 Apache-2.0 单独复用这些
+原创文件。只要发行物包含雾凇拼音词库，就必须按 GPL-3.0-only
+提供对应源码。
+
+第三方组件保留其原始许可证，详见 THIRD_PARTY_NOTICES.md。

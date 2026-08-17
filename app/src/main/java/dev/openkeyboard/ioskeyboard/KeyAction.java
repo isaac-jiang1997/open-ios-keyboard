@@ -1,0 +1,20 @@
+package dev.openkeyboard.ioskeyboard;
+
+enum KeyAction {
+    CHARACTER,
+    SHIFT,
+    BACKSPACE,
+    SPACE,
+    RETURN,
+    MODE_123,
+    MODE_ABC,
+    MODE_SYMBOLS,
+    MODE_EMOJI,
+    PUNCTUATION_PICKER,
+    SEPARATOR,
+    SELECT_WORDS,
+    CONFIRM_COMPOSITION,
+    SWITCH_CHINESE_LAYOUT,
+    SWITCH_LANGUAGE,
+    SWITCH_INPUT_METHOD
+}
