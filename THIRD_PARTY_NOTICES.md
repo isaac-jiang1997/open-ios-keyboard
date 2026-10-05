@@ -44,6 +44,18 @@ redistributed as part of Rime Ice under GPL-3.0-only.
 - License: BSD-3-Clause
 - Included files: `app/src/main/cpp/librime/` (engine sources)
 
+## X11 keysym headers
+
+- Project: xorgproto
+- Source: https://gitlab.freedesktop.org/xorg/proto/xorgproto
+- License: MIT / The Open Group
+- Included files:
+  - `app/src/main/cpp/librime/include/X11/keysym.h`
+  - `app/src/main/cpp/librime/include/X11/keysymdef.h`
+
+Android NDK does not ship X11. librime only needs these key code
+constants, so the headers are vendored for the native build.
+
 ## OpenCC
 
 - Project: OpenCC

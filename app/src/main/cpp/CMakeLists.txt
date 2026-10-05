@@ -60,8 +60,11 @@ file(GLOB opencc_headers
     "${CMAKE_BINARY_DIR}/opencc/src/opencc_config.h")
 file(COPY ${opencc_headers} DESTINATION "${CMAKE_BINARY_DIR}/include/opencc")
 
-set(X11Keysym "${CMAKE_CURRENT_SOURCE_DIR}/librime/include")
+# Android NDK has no X11. librime only needs the keysym constants, so we
+# vendor those headers and pin the include path before find_path() runs.
+set(X11Keysym "${CMAKE_CURRENT_SOURCE_DIR}/librime/include" CACHE PATH "X11 keysym headers" FORCE)
 add_subdirectory(librime)
+target_include_directories(rime-static PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/librime/include")
 target_compile_options(rime-static PRIVATE -Wno-error=deprecated-declarations)
 
 add_library(openphone_rime SHARED rime_bridge.cpp)
