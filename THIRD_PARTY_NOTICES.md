@@ -56,6 +56,17 @@ redistributed as part of Rime Ice under GPL-3.0-only.
 Android NDK does not ship X11. librime only needs these key code
 constants, so the headers are vendored for the native build.
 
+## UTF8-CPP (utfcpp)
+
+- Project: utfcpp
+- Source: https://github.com/nemtrif/utfcpp
+- Version: 3.2.5
+- License: Boost Software License 1.0
+- Included files: `app/src/main/cpp/include/utf8.h`, `app/src/main/cpp/include/utf8/`
+
+Header-only UTF-8 helpers used by librime. Vendored because the NDK
+does not provide them.
+
 ## OpenCC
 
 - Project: OpenCC
