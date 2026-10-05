@@ -20,6 +20,12 @@
 
 当前是可运行的 V1 原型。想接近 iPhone 底部体验时，系统里只保留这一款键盘，否则 Android 会在导航栏画系统切换按钮。
 
+## 下载
+
+每次推送到 GitHub，Actions 都会编译一份 debug APK。打开 **Actions** → **Build APK** → 最新一次成功的运行 → **Artifacts** → `open-ios-keyboard-debug`。
+
+也可以在该页面点 **Run workflow** 手动编译。APK 只含 `arm64-v8a`，用 CI 的 debug 签名；手机上如果已经装过旧包，可能要先卸载再装。
+
 ## 构建
 
 需要 Android SDK（`compileSdk 35`）、NDK `28.0.13004108`、CMake `3.31.6`。

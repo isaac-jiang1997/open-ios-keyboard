@@ -44,6 +44,38 @@ redistributed as part of Rime Ice under GPL-3.0-only.
 - License: BSD-3-Clause
 - Included files: `app/src/main/cpp/librime/` (engine sources)
 
+## X11 keysym headers
+
+- Project: xorgproto
+- Source: https://gitlab.freedesktop.org/xorg/proto/xorgproto
+- License: MIT / The Open Group
+- Included files:
+  - `app/src/main/cpp/include/X11/keysym.h`
+  - `app/src/main/cpp/include/X11/keysymdef.h`
+
+Android NDK does not ship X11. librime only needs these key code
+constants, so the headers are vendored for the native build.
+
+## UTF8-CPP (utfcpp)
+
+- Project: utfcpp
+- Source: https://github.com/nemtrif/utfcpp
+- Version: 3.2.5
+- License: Boost Software License 1.0
+- Included files: `app/src/main/cpp/include/utf8.h`, `app/src/main/cpp/include/utf8/`
+
+Header-only UTF-8 helpers used by librime. Vendored because the NDK
+does not provide them.
+
+## Darts-clone
+
+- Project: darts-clone
+- Source: https://github.com/s-yata/darts-clone
+- License: BSD-2-Clause
+- Included files: `app/src/main/cpp/include/darts.h`
+
+Header-only double-array trie used by librime's prism dictionary.
+
 ## OpenCC
 
 - Project: OpenCC

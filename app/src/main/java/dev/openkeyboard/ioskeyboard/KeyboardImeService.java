@@ -2,15 +2,17 @@ package dev.openkeyboard.ioskeyboard;
 
 import android.inputmethodservice.InputMethodService;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.content.SharedPreferences;
-import android.text.InputType;
-import android.view.Gravity;
+import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
+import android.view.inputmethod.InputMethodSubtype;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 
@@ -75,6 +77,12 @@ public final class KeyboardImeService extends InputMethodService
     private long lastPunctuationTapMs;
     private String lastPunctuationText = "";
     private boolean candidatePanelExpanded;
+    private EditorInputPolicy editorPolicy = EditorInputPolicy.from(null);
+    private boolean suppressCandidates;
+    private boolean handlingSelectionUpdate;
+    private RimeChineseInputEngine pendingRime;
+    private boolean rimeLoadStarted;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @Override
     public void onCreate() {
@@ -89,9 +97,19 @@ public final class KeyboardImeService extends InputMethodService
     }
 
     @Override
+    public boolean onEvaluateFullscreenMode() {
+        return false;
+    }
+
+    @Override
     public View onCreateInputView() {
-        chineseInputEngine = createChineseInputEngine();
-        localPinyinEngine = new PinyinEngine(this);
+        if (localPinyinEngine == null) {
+            localPinyinEngine = PinyinEngine.getInstance(this);
+        }
+        if (chineseInputEngine == null) {
+            chineseInputEngine = new LegacyPinyinInputEngine(this);
+            startRimeLoad();
+        }
         styleImeSystemBars();
         chineseInputEngine.setLayout(chineseKeyboardLayout);
         chineseInputEngine.setLearningAllowed(learningAllowed);
@@ -187,18 +205,21 @@ public final class KeyboardImeService extends InputMethodService
     public void onStartInput(EditorInfo attribute, boolean restarting) {
         super.onStartInput(attribute, restarting);
         styleImeSystemBars();
-        clearComposition();
-        learningAllowed = shouldAllowLearning(attribute);
-        if (chineseInputEngine != null) {
-            chineseInputEngine.setLearningAllowed(learningAllowed);
+        if (!restarting) {
+            finishAndResetComposition();
         }
-        shouldAutoShift = true;
+        applyEditorPolicy(attribute);
+        shouldAutoShift = language == InputLanguage.ENGLISH;
         if (keyboardView != null) {
-            resetTransientKeyboardMode();
+            if (editorPolicy.forceNumberPad) {
+                setKeyboardMode(KeyboardMode.NUMBERS);
+            } else {
+                resetTransientKeyboardMode();
+            }
             keyboardView.setLanguage(language);
             keyboardView.setChineseKeyboardLayout(chineseKeyboardLayout);
-            keyboardView.setAutoShift(true);
-            keyboardView.setSensitiveInput(!learningAllowed);
+            keyboardView.setAutoShift(shouldAutoShift);
+            keyboardView.setSensitiveInput(suppressCandidates);
             updateReturnKeyAppearance(attribute);
         }
         updateCandidates();
@@ -217,15 +238,15 @@ public final class KeyboardImeService extends InputMethodService
         if (keyboardView == null) {
             return;
         }
-        if (info == null) {
+        boolean isChinese = language == InputLanguage.CHINESE;
+        if (info == null || editorPolicy.sendNewline) {
             keyboardView.setReturnKeyAppearance(
-                    language == InputLanguage.CHINESE ? "\u6362\u884C" : "return", false);
+                    isChinese ? "\u6362\u884C" : "return", false);
             return;
         }
         int action = info.imeOptions & EditorInfo.IME_MASK_ACTION;
         boolean isAction;
         String label;
-        boolean isChinese = language == InputLanguage.CHINESE;
         switch (action) {
             case EditorInfo.IME_ACTION_SEARCH:
                 label = isChinese ? "\u641C\u7D22" : "search";
@@ -258,10 +279,75 @@ public final class KeyboardImeService extends InputMethodService
     @Override
     public void onFinishInput() {
         super.onFinishInput();
-        clearComposition();
+        finishAndResetComposition();
         punctuationPickerVisible = false;
         hideCandidatePanel();
         resetTransientKeyboardMode();
+        updateCandidates();
+    }
+
+    @Override
+    public void onUpdateSelection(
+            int oldSelStart,
+            int oldSelEnd,
+            int newSelStart,
+            int newSelEnd,
+            int candidatesStart,
+            int candidatesEnd
+    ) {
+        super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd);
+        if (handlingSelectionUpdate || !hasActiveComposition()) {
+            return;
+        }
+        if (candidatesStart < 0) {
+            handlingSelectionUpdate = true;
+            resetCompositionState();
+            handlingSelectionUpdate = false;
+            updateCandidates();
+            return;
+        }
+        boolean cursorOutside = newSelStart < candidatesStart
+                || newSelStart > candidatesEnd
+                || newSelEnd < candidatesStart
+                || newSelEnd > candidatesEnd;
+        if (cursorOutside || newSelStart != newSelEnd) {
+            handlingSelectionUpdate = true;
+            InputConnection ic = getCurrentInputConnection();
+            if (ic != null) {
+                ic.finishComposingText();
+            }
+            resetCompositionState();
+            handlingSelectionUpdate = false;
+            updateCandidates();
+        }
+    }
+
+    @Override
+    public void onCurrentInputMethodSubtypeChanged(InputMethodSubtype subtype) {
+        super.onCurrentInputMethodSubtypeChanged(subtype);
+        InputConnection ic = getCurrentInputConnection();
+        if (ic != null) {
+            commitPendingComposition(ic);
+        }
+        if (subtype == null) {
+            return;
+        }
+        String locale = subtype.getLocale();
+        if (locale == null) {
+            locale = "";
+        }
+        String normalized = locale.toLowerCase(java.util.Locale.US);
+        if (normalized.startsWith("en")) {
+            language = InputLanguage.ENGLISH;
+            chineseKeyboardLayout = ChineseKeyboardLayout.QWERTY;
+        } else if (normalized.startsWith("zh")) {
+            language = InputLanguage.CHINESE;
+        }
+        saveBaseInputMode();
+        if (keyboardView != null) {
+            resetTransientKeyboardMode();
+            updateReturnKeyAppearance(getCurrentInputEditorInfo());
+        }
         updateCandidates();
     }
 
@@ -308,13 +394,7 @@ public final class KeyboardImeService extends InputMethodService
                 break;
             case MODE_123:
                 commitPendingComposition(ic);
-                if (keyboardMode == KeyboardMode.SYMBOLS_MORE
-                        && language == InputLanguage.CHINESE
-                        && chineseKeyboardLayout == ChineseKeyboardLayout.NINE_KEY) {
-                    setKeyboardMode(KeyboardMode.SYMBOLS);
-                } else {
-                    setKeyboardMode(KeyboardMode.NUMBERS);
-                }
+                setKeyboardMode(KeyboardMode.NUMBERS);
                 break;
             case MODE_ABC:
                 setKeyboardMode(KeyboardMode.LETTERS);
@@ -367,6 +447,11 @@ public final class KeyboardImeService extends InputMethodService
     }
 
     @Override
+    public void onGlobeLongPress() {
+        switchInputMethod();
+    }
+
+    @Override
     public void onBackspace() {
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) {
@@ -379,8 +464,7 @@ public final class KeyboardImeService extends InputMethodService
                     chineseInputEngine.backspace();
                 }
             } else {
-                removeLastT9SelectedPinyinHistory();
-                removeLastSelectedT9TextCodePoint();
+                restoreLastT9SelectedSyllable();
             }
             hidePunctuationPicker();
             syncComposition(ic);
@@ -499,20 +583,13 @@ public final class KeyboardImeService extends InputMethodService
         if (commitFirstCandidate(ic)) {
             return;
         }
-        EditorInfo info = getCurrentInputEditorInfo();
-        int action = info == null ? EditorInfo.IME_ACTION_NONE : info.imeOptions & EditorInfo.IME_MASK_ACTION;
-        if (action == EditorInfo.IME_ACTION_GO
-                || action == EditorInfo.IME_ACTION_SEARCH
-                || action == EditorInfo.IME_ACTION_SEND
-                || action == EditorInfo.IME_ACTION_NEXT
-                || action == EditorInfo.IME_ACTION_DONE) {
-            ic.performEditorAction(action);
+        if (editorPolicy.performEditorAction) {
+            ic.performEditorAction(editorPolicy.editorAction);
         } else {
-            ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER));
-            ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER));
+            sendSoftKey(ic, KeyEvent.KEYCODE_ENTER);
         }
-        shouldAutoShift = true;
-        keyboardView.setAutoShift(true);
+        shouldAutoShift = language == InputLanguage.ENGLISH;
+        keyboardView.setAutoShift(shouldAutoShift);
     }
 
     private void handleSpace(InputConnection ic) {
@@ -521,7 +598,9 @@ public final class KeyboardImeService extends InputMethodService
             return;
         }
         CharSequence before = ic.getTextBeforeCursor(2, 0);
-        if (shouldInsertDoubleSpacePeriod(before)) {
+        if (language == InputLanguage.ENGLISH
+                && !suppressCandidates
+                && shouldInsertDoubleSpacePeriod(before)) {
             deleteOneCodePoint(ic);
             ic.commitText(". ", 1);
             shouldAutoShift = true;
@@ -546,6 +625,9 @@ public final class KeyboardImeService extends InputMethodService
     }
 
     private void switchLanguage(InputConnection ic) {
+        if (editorPolicy.forceEnglish || editorPolicy.forceNumberPad) {
+            return;
+        }
         commitPendingComposition(ic);
         hidePunctuationPicker();
         hideCandidatePanel();
@@ -562,6 +644,9 @@ public final class KeyboardImeService extends InputMethodService
     }
 
     private void cycleInputMode(InputConnection ic) {
+        if (editorPolicy.forceEnglish || editorPolicy.forceNumberPad) {
+            return;
+        }
         commitPendingComposition(ic);
         hidePunctuationPicker();
         hideCandidatePanel();
@@ -589,6 +674,9 @@ public final class KeyboardImeService extends InputMethodService
     }
 
     private void switchChineseKeyboardLayout(InputConnection ic) {
+        if (editorPolicy.forceEnglish || editorPolicy.forceNumberPad) {
+            return;
+        }
         commitPendingComposition(ic);
         hidePunctuationPicker();
         hideCandidatePanel();
@@ -808,10 +896,17 @@ public final class KeyboardImeService extends InputMethodService
     }
 
     private void updateCandidates() {
+        adoptPendingRimeIfIdle();
         if (keyboardView != null) {
             keyboardView.setComposing(isChineseNineKeyComposing());
         }
         if (candidateStripView != null) {
+            if (suppressCandidates) {
+                candidateStripView.setReserveSpaceWhenEmpty(false);
+                candidateStripView.setCandidates(Collections.emptyList(), "");
+                hideCandidatePanel();
+                return;
+            }
             candidateStripView.setReserveSpaceWhenEmpty(shouldReserveCandidateStrip());
             if (punctuationPickerVisible) {
                 candidateStripView.setPunctuationCandidates(PUNCTUATION_STRIP_CANDIDATES);
@@ -922,6 +1017,9 @@ public final class KeyboardImeService extends InputMethodService
         ic.finishComposingText();
         replaceActivePunctuationIfPossible(ic);
         ic.commitText(text, 1);
+        if (PunctuationPairs.isWrapPair(text)) {
+            sendSoftKey(ic, KeyEvent.KEYCODE_DPAD_LEFT);
+        }
         resetPunctuationCycle();
         shouldAutoShift = false;
         if (keyboardView != null) {
@@ -1002,26 +1100,18 @@ public final class KeyboardImeService extends InputMethodService
     private void resetTransientKeyboardMode() {
         hidePunctuationPicker();
         hideCandidatePanel();
-        keyboardMode = KeyboardMode.LETTERS;
+        KeyboardMode mode = editorPolicy != null && editorPolicy.forceNumberPad
+                ? KeyboardMode.NUMBERS
+                : KeyboardMode.LETTERS;
+        keyboardMode = mode;
         if (keyboardView != null) {
-            keyboardView.setMode(KeyboardMode.LETTERS);
+            keyboardView.setMode(mode);
             keyboardView.setLanguage(language);
             keyboardView.setChineseKeyboardLayout(chineseKeyboardLayout);
             keyboardView.setAutoShift(language == InputLanguage.ENGLISH && shouldAutoShift);
         }
         if (chineseInputEngine != null) {
             chineseInputEngine.setLayout(chineseKeyboardLayout);
-        }
-    }
-
-    private void clearComposition() {
-        if (chineseInputEngine != null) {
-            chineseInputEngine.reset();
-        }
-        hideCandidatePanel();
-        clearT9State();
-        if (keyboardView != null) {
-            keyboardView.setComposing(false);
         }
     }
 
@@ -1357,15 +1447,24 @@ public final class KeyboardImeService extends InputMethodService
     }
 
     private void removeLastT9SelectedPinyinHistory() {
-        if (t9SelectedPinyinHistory.length() == 0) {
+        String history = t9SelectedPinyinHistory.toString();
+        t9SelectedPinyinHistory.setLength(0);
+        t9SelectedPinyinHistory.append(T9SelectionHistory.dropLastSyllable(history));
+    }
+
+    private void restoreLastT9SelectedSyllable() {
+        String history = t9SelectedPinyinHistory.toString();
+        String last = T9SelectionHistory.lastSyllable(history);
+        t9SelectedPinyinHistory.setLength(0);
+        t9SelectedPinyinHistory.append(T9SelectionHistory.dropLastSyllable(history));
+        removeLastSelectedT9TextCodePoint();
+        if (last.isEmpty()) {
             return;
         }
-        int lastSpace = t9SelectedPinyinHistory.lastIndexOf(" ");
-        if (lastSpace < 0) {
-            t9SelectedPinyinHistory.setLength(0);
-            return;
-        }
-        t9SelectedPinyinHistory.setLength(lastSpace);
+        String restored = T9SelectionHistory.prependDigits(t9CompositionTokens.toString(), last);
+        t9CompositionTokens.setLength(0);
+        t9CompositionTokens.append(restored);
+        rebuildChineseEngineForRemainingT9();
     }
 
     private void recordChineseCandidateSelection(String context, String candidate) {
@@ -1540,9 +1639,82 @@ public final class KeyboardImeService extends InputMethodService
         t9SelectedText.delete(offset, t9SelectedText.length());
     }
 
-    private ChineseInputEngine createChineseInputEngine() {
-        ChineseInputEngine engine = RimeChineseInputEngine.create(this);
-        return engine == null ? new LegacyPinyinInputEngine(this) : engine;
+    private void startRimeLoad() {
+        if (rimeLoadStarted) {
+            return;
+        }
+        rimeLoadStarted = true;
+        PinyinEngine.loadExecutor().execute(() -> {
+            final RimeChineseInputEngine rime = RimeChineseInputEngine.create(getApplicationContext());
+            if (rime == null) {
+                return;
+            }
+            mainHandler.post(() -> {
+                pendingRime = rime;
+                adoptPendingRimeIfIdle();
+            });
+        });
+    }
+
+    private void adoptPendingRimeIfIdle() {
+        if (pendingRime == null || hasActiveComposition()) {
+            return;
+        }
+        pendingRime.setLayout(chineseKeyboardLayout);
+        pendingRime.setLearningAllowed(learningAllowed);
+        chineseInputEngine = pendingRime;
+        pendingRime = null;
+    }
+
+    private void applyEditorPolicy(EditorInfo info) {
+        restoreBaseInputMode();
+        editorPolicy = EditorInputPolicy.from(info);
+        learningAllowed = editorPolicy.allowLearning;
+        suppressCandidates = editorPolicy.suppressCandidates;
+        if (editorPolicy.forceEnglish) {
+            language = InputLanguage.ENGLISH;
+            chineseKeyboardLayout = ChineseKeyboardLayout.QWERTY;
+        }
+        if (chineseInputEngine != null) {
+            chineseInputEngine.setLearningAllowed(learningAllowed);
+            chineseInputEngine.setLayout(chineseKeyboardLayout);
+        }
+    }
+
+    private void finishAndResetComposition() {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic != null && hasActiveComposition()) {
+            ic.finishComposingText();
+        }
+        resetCompositionState();
+    }
+
+    private void resetCompositionState() {
+        if (chineseInputEngine != null) {
+            chineseInputEngine.reset();
+        }
+        hideCandidatePanel();
+        clearT9State();
+        if (keyboardView != null) {
+            keyboardView.setComposing(false);
+        }
+        adoptPendingRimeIfIdle();
+    }
+
+    private boolean hasActiveComposition() {
+        return isChineseNineKeyComposing()
+                || (chineseInputEngine != null && chineseInputEngine.hasComposition());
+    }
+
+    private void sendSoftKey(InputConnection ic, int keyCode) {
+        long now = SystemClock.uptimeMillis();
+        int flags = KeyEvent.FLAG_SOFT_KEYBOARD | KeyEvent.FLAG_KEEP_TOUCH_MODE;
+        ic.sendKeyEvent(new KeyEvent(
+                now, now, KeyEvent.ACTION_DOWN, keyCode, 0, 0,
+                KeyCharacterMap.VIRTUAL_KEYBOARD, 0, flags));
+        ic.sendKeyEvent(new KeyEvent(
+                now, now, KeyEvent.ACTION_UP, keyCode, 0, 0,
+                KeyCharacterMap.VIRTUAL_KEYBOARD, 0, flags));
     }
 
     private void styleImeSystemBars() {
@@ -1582,36 +1754,6 @@ public final class KeyboardImeService extends InputMethodService
                 && output.length() == 1
                 && output.charAt(0) >= '2'
                 && output.charAt(0) <= '9';
-    }
-
-    private boolean shouldAllowLearning(EditorInfo attribute) {
-        if (attribute == null) {
-            return false;
-        }
-        if ((attribute.imeOptions & EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0) {
-            return false;
-        }
-        return !isSensitiveInputType(attribute.inputType);
-    }
-
-    private boolean isSensitiveInputType(int inputType) {
-        int variation = inputType & InputType.TYPE_MASK_VARIATION;
-        int clazz = inputType & InputType.TYPE_MASK_CLASS;
-        if (clazz == InputType.TYPE_CLASS_TEXT) {
-            return variation == InputType.TYPE_TEXT_VARIATION_PASSWORD
-                    || variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-                    || variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
-                    || variation == InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
-                    || variation == InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS
-                    || variation == InputType.TYPE_TEXT_VARIATION_URI
-                    || variation == InputType.TYPE_TEXT_VARIATION_PERSON_NAME
-                    || variation == InputType.TYPE_TEXT_VARIATION_POSTAL_ADDRESS;
-        }
-        if (clazz == InputType.TYPE_CLASS_PHONE) {
-            return true;
-        }
-        return clazz == InputType.TYPE_CLASS_NUMBER
-                && variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD;
     }
 
     private boolean shouldInsertDoubleSpacePeriod(CharSequence before) {

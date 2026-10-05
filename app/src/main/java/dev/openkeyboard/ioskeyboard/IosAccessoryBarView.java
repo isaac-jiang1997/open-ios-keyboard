@@ -5,6 +5,8 @@ import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
@@ -14,12 +16,27 @@ public final class IosAccessoryBarView extends View {
 
     interface Listener {
         void onGlobe();
+
+        void onGlobeLongPress();
     }
+
+    private static final long GLOBE_LONG_PRESS_MS = 420;
 
     private final Drawable globeIcon;
     private final Rect iconBounds = new Rect();
     private final RectF globeBounds = new RectF();
+    private final Handler handler = new Handler(Looper.getMainLooper());
     private Listener listener;
+    private boolean pointerDownInGlobe;
+    private boolean longPressFired;
+    private final Runnable longPress = () -> {
+        if (!pointerDownInGlobe || listener == null) {
+            return;
+        }
+        longPressFired = true;
+        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+        listener.onGlobeLongPress();
+    };
 
     public IosAccessoryBarView(Context context) {
         super(context);
@@ -45,8 +62,9 @@ public final class IosAccessoryBarView extends View {
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         float scale = IosKeyboardTheme.scale(w);
-        float hitWidth = Math.max(dp(56), 230f * scale);
-        globeBounds.set(0, 0, hitWidth, h);
+        float iconCenterX = 126f * scale;
+        float hitWidth = Math.max(dp(48), 96f * scale);
+        globeBounds.set(Math.max(0f, iconCenterX - hitWidth / 2f), 0, iconCenterX + hitWidth / 2f, h);
     }
 
     @Override
@@ -61,16 +79,47 @@ public final class IosAccessoryBarView extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        if (event.getActionMasked() != MotionEvent.ACTION_UP || listener == null) {
-            return true;
-        }
-        performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
         float x = event.getX();
         float y = event.getY();
-        if (globeBounds.contains(x, y)) {
-            listener.onGlobe();
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                pointerDownInGlobe = globeBounds.contains(x, y);
+                longPressFired = false;
+                if (pointerDownInGlobe) {
+                    handler.postDelayed(longPress, GLOBE_LONG_PRESS_MS);
+                }
+                return true;
+            case MotionEvent.ACTION_MOVE:
+                if (pointerDownInGlobe && !globeBounds.contains(x, y)) {
+                    pointerDownInGlobe = false;
+                    handler.removeCallbacks(longPress);
+                }
+                return true;
+            case MotionEvent.ACTION_UP:
+                handler.removeCallbacks(longPress);
+                if (pointerDownInGlobe && !longPressFired && listener != null && globeBounds.contains(x, y)) {
+                    performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                    listener.onGlobe();
+                }
+                pointerDownInGlobe = false;
+                longPressFired = false;
+                return true;
+            case MotionEvent.ACTION_CANCEL:
+                handler.removeCallbacks(longPress);
+                pointerDownInGlobe = false;
+                longPressFired = false;
+                return true;
+            default:
+                return true;
         }
-        return true;
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        handler.removeCallbacks(longPress);
+        pointerDownInGlobe = false;
+        longPressFired = false;
+        super.onDetachedFromWindow();
     }
 
     private void drawIcon(Canvas canvas, Drawable drawable, int centerX, int centerY, int size) {

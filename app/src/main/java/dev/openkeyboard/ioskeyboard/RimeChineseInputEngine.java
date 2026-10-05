@@ -24,6 +24,8 @@ final class RimeChineseInputEngine implements ChineseInputEngine {
     private String activeSchema = "";
     private String pendingCommit = "";
     private boolean learningAllowed = true;
+    private final File sharedDir;
+    private final File userDir;
 
     static RimeChineseInputEngine create(Context context) {
         if (!RimeNativeBridge.isLibraryLoaded()) {
@@ -55,8 +57,8 @@ final class RimeChineseInputEngine implements ChineseInputEngine {
 
     private RimeChineseInputEngine(Context context) throws IOException {
         File baseDir = new File(context.getFilesDir(), "rime");
-        File sharedDir = new File(baseDir, "shared");
-        File userDir = new File(baseDir, "user");
+        sharedDir = new File(baseDir, "shared");
+        userDir = new File(baseDir, "user");
         installSharedAssets(context.getAssets(), sharedDir);
         if (!userDir.exists() && !userDir.mkdirs()) {
             throw new IOException("Cannot create Rime user directory");
@@ -67,9 +69,27 @@ final class RimeChineseInputEngine implements ChineseInputEngine {
         setLayout(layout);
     }
 
+    private boolean ensureAlive() {
+        if (!RimeNativeBridge.isLibraryLoaded()) {
+            return false;
+        }
+        if (RimeNativeBridge.isInitialized()) {
+            return true;
+        }
+        if (!RimeNativeBridge.initialize(sharedDir, userDir)) {
+            return false;
+        }
+        activeSchema = "";
+        setLayout(layout);
+        return true;
+    }
+
     @Override
     public void setLayout(ChineseKeyboardLayout layout) {
         this.layout = layout == null ? ChineseKeyboardLayout.NINE_KEY : layout;
+        if (!ensureAlive()) {
+            return;
+        }
         String targetSchema = this.layout == ChineseKeyboardLayout.NINE_KEY ? SCHEMA_T9 : SCHEMA_PINYIN;
         if (!targetSchema.equals(activeSchema)) {
             snapshot = RimeNativeBridge.selectSchema(targetSchema);
@@ -85,6 +105,11 @@ final class RimeChineseInputEngine implements ChineseInputEngine {
 
     @Override
     public void reset() {
+        if (!ensureAlive()) {
+            snapshot = RimeNativeBridge.Snapshot.EMPTY;
+            pendingCommit = "";
+            return;
+        }
         snapshot = RimeNativeBridge.clear();
         pendingCommit = "";
     }
@@ -146,6 +171,10 @@ final class RimeChineseInputEngine implements ChineseInputEngine {
 
     @Override
     public String commitCandidate(String text) {
+        if (!ensureAlive()) {
+            reset();
+            return text == null ? "" : text;
+        }
         int index = snapshot.candidates.indexOf(text);
         if (index >= 0) {
             if (!learningAllowed) {
@@ -163,6 +192,9 @@ final class RimeChineseInputEngine implements ChineseInputEngine {
 
     @Override
     public String commitBestCandidateOrRaw() {
+        if (!ensureAlive()) {
+            return commitRaw();
+        }
         if (!snapshot.candidates.isEmpty()) {
             if (!learningAllowed) {
                 String text = snapshot.candidates.get(0);
@@ -179,6 +211,12 @@ final class RimeChineseInputEngine implements ChineseInputEngine {
 
     @Override
     public String commitRaw() {
+        if (!ensureAlive()) {
+            String fallback = snapshot.preedit;
+            snapshot = RimeNativeBridge.Snapshot.EMPTY;
+            pendingCommit = "";
+            return fallback;
+        }
         String fallback = snapshot.preedit;
         snapshot = RimeNativeBridge.commitComposition();
         String commit = snapshot.commit;
@@ -191,6 +229,10 @@ final class RimeChineseInputEngine implements ChineseInputEngine {
     }
 
     private void processKey(int keyCode) {
+        if (!ensureAlive()) {
+            snapshot = RimeNativeBridge.Snapshot.EMPTY;
+            return;
+        }
         snapshot = RimeNativeBridge.processKey(keyCode);
         if (!snapshot.commit.isEmpty()) {
             pendingCommit = pendingCommit + snapshot.commit;
