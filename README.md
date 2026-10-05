@@ -20,6 +20,12 @@ This project is for those users: keep the iOS keyboard’s positions and rhythm 
 
 This is a working V1 prototype. Keep only this keyboard enabled if you want to hide Android’s system IME switcher.
 
+## Download
+
+GitHub Actions builds a debug APK on every push. Open **Actions** → **Build APK** → the latest green run → **Artifacts** → `open-ios-keyboard-debug`.
+
+You can also click **Run workflow** on that page. The APK is `arm64-v8a` only and signed with the CI debug key, so a phone may ask you to uninstall an older build first.
+
 ## Build
 
 Requires Android SDK (`compileSdk 35`), NDK `28.0.13004108`, and CMake `3.31.6`.
