@@ -13,6 +13,22 @@ std::mutex g_mutex;
 RimeApi* g_rime = nullptr;
 RimeSessionId g_session = 0;
 bool g_initialized = false;
+jclass g_string_class = nullptr;
+jmethodID g_string_utf8_ctor = nullptr;
+jstring g_utf8_charset = nullptr;
+
+void ensure_jni_string_helpers(JNIEnv* env) {
+    if (g_string_class != nullptr) {
+        return;
+    }
+    jclass local_class = env->FindClass("java/lang/String");
+    g_string_class = static_cast<jclass>(env->NewGlobalRef(local_class));
+    env->DeleteLocalRef(local_class);
+    g_string_utf8_ctor = env->GetMethodID(g_string_class, "<init>", "([BLjava/lang/String;)V");
+    jstring local_charset = env->NewStringUTF("UTF-8");
+    g_utf8_charset = static_cast<jstring>(env->NewGlobalRef(local_charset));
+    env->DeleteLocalRef(local_charset);
+}
 
 void append_candidate(std::vector<std::string>& candidates,
                       std::vector<std::string>& seen_text,
@@ -45,12 +61,27 @@ std::string to_string(JNIEnv* env, jstring value) {
     return out;
 }
 
+jstring utf8_to_jstring(JNIEnv* env, const std::string& value) {
+    if (value.empty()) {
+        return env->NewStringUTF("");
+    }
+    ensure_jni_string_helpers(env);
+    jbyteArray bytes = env->NewByteArray(static_cast<jsize>(value.size()));
+    env->SetByteArrayRegion(
+            bytes, 0, static_cast<jsize>(value.size()),
+            reinterpret_cast<const jbyte*>(value.data()));
+    jstring result = static_cast<jstring>(
+            env->NewObject(g_string_class, g_string_utf8_ctor, bytes, g_utf8_charset));
+    env->DeleteLocalRef(bytes);
+    return result;
+}
+
 jobjectArray to_java_array(JNIEnv* env, const std::vector<std::string>& values) {
-    jclass string_class = env->FindClass("java/lang/String");
+    ensure_jni_string_helpers(env);
     jobjectArray array = env->NewObjectArray(
-            static_cast<jsize>(values.size()), string_class, nullptr);
+            static_cast<jsize>(values.size()), g_string_class, nullptr);
     for (jsize i = 0; i < static_cast<jsize>(values.size()); ++i) {
-        jstring item = env->NewStringUTF(values[static_cast<size_t>(i)].c_str());
+        jstring item = utf8_to_jstring(env, values[static_cast<size_t>(i)]);
         env->SetObjectArrayElement(array, i, item);
         env->DeleteLocalRef(item);
     }
@@ -125,6 +156,13 @@ bool ensure_session() {
     return g_session != 0;
 }
 }  // namespace
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_openkeyboard_ioskeyboard_RimeNativeBridge_nativeIsInitialized(
+        JNIEnv*, jclass) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return g_initialized && g_session != 0 ? JNI_TRUE : JNI_FALSE;
+}
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_dev_openkeyboard_ioskeyboard_RimeNativeBridge_nativeInitialize(

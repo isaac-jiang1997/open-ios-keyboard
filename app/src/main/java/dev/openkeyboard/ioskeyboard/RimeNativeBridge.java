@@ -27,6 +27,10 @@ final class RimeNativeBridge {
         return LIBRARY_LOADED;
     }
 
+    static boolean isInitialized() {
+        return LIBRARY_LOADED && nativeIsInitialized();
+    }
+
     static boolean initialize(File sharedDir, File userDir) {
         return LIBRARY_LOADED
                 && nativeInitialize(sharedDir.getAbsolutePath(), userDir.getAbsolutePath());
@@ -85,6 +89,8 @@ final class RimeNativeBridge {
         }
         return new Snapshot(commit, preedit, candidates, candidateAnnotations);
     }
+
+    private static native boolean nativeIsInitialized();
 
     private static native boolean nativeInitialize(String sharedDir, String userDir);
 

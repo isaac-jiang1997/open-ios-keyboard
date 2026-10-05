@@ -13,7 +13,7 @@ final class LegacyPinyinInputEngine implements ChineseInputEngine {
     private boolean learningAllowed = true;
 
     LegacyPinyinInputEngine(Context context) {
-        pinyinEngine = new PinyinEngine(context);
+        pinyinEngine = PinyinEngine.getInstance(context);
     }
 
     @Override

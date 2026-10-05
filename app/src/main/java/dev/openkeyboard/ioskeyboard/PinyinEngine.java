@@ -12,6 +12,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 final class PinyinEngine {
     private static final String DICTIONARY_ASSET = "pinyin_zh.tsv";
@@ -22,17 +24,46 @@ final class PinyinEngine {
     private static final int MIN_ABBREVIATION_SYLLABLES = 2;
     private static final int MAX_ABBREVIATION_SYLLABLES = 8;
 
-    private final Map<String, List<String>> dictionary = new HashMap<>();
-    private final Map<String, List<String>> reversePinyin = new HashMap<>();
-    private final Map<String, List<String>> rimeSingleSyllableCandidates = new HashMap<>();
-    private final Map<String, List<String>> abbreviationDictionary = new HashMap<>();
+    private static final Executor LOAD_EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "pinyin-load");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    private static volatile PinyinEngine instance;
+
+    private volatile Map<String, List<String>> dictionary = new HashMap<>();
+    private volatile Map<String, List<String>> reversePinyin = new HashMap<>();
+    private volatile Map<String, List<String>> rimeSingleSyllableCandidates = new HashMap<>();
+    private volatile Map<String, List<String>> abbreviationDictionary = new HashMap<>();
     private final UserDictionaryStore userDictionaryStore;
 
-    PinyinEngine(Context context) {
+    static Executor loadExecutor() {
+        return LOAD_EXECUTOR;
+    }
+
+    static PinyinEngine getInstance(Context context) {
+        PinyinEngine current = instance;
+        if (current == null) {
+            synchronized (PinyinEngine.class) {
+                current = instance;
+                if (current == null) {
+                    current = new PinyinEngine(context.getApplicationContext());
+                    instance = current;
+                }
+            }
+        }
+        return current;
+    }
+
+    private PinyinEngine(Context context) {
         userDictionaryStore = new UserDictionaryStore(context);
-        load(context);
-        loadRimePinyinLookup(context);
-        loadRimeAbbreviationLookup(context);
+        final Context appContext = context.getApplicationContext();
+        LOAD_EXECUTOR.execute(() -> {
+            load(appContext);
+            loadRimePinyinLookup(appContext);
+            loadRimeAbbreviationLookup(appContext);
+        });
     }
 
     List<String> candidates(String rawInput) {
@@ -314,17 +345,19 @@ final class PinyinEngine {
     }
 
     private void load(Context context) {
+        Map<String, List<String>> loaded = new HashMap<>();
         try (InputStream input = context.getAssets().open(DICTIONARY_ASSET);
              BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
-                parseLine(line);
+                parseLine(line, loaded);
             }
         } catch (IOException ignored) {
         }
+        dictionary = loaded;
     }
 
-    private void parseLine(String line) {
+    private void parseLine(String line, Map<String, List<String>> target) {
         if (line.isEmpty() || line.charAt(0) == '#') {
             return;
         }
@@ -344,33 +377,70 @@ final class PinyinEngine {
             }
         }
         if (!candidates.isEmpty()) {
-            dictionary.put(key, Collections.unmodifiableList(candidates));
+            target.put(key, Collections.unmodifiableList(candidates));
         }
     }
 
     private void loadRimePinyinLookup(Context context) {
+        Map<String, List<String>> singles = new HashMap<>();
+        Map<String, List<String>> reverse = new HashMap<>();
         try (InputStream input = context.getAssets().open(RIME_PINYIN_ASSET);
              BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
-                parseRimePinyinLine(line);
+                parseRimePinyinLine(line, singles, reverse);
             }
         } catch (IOException ignored) {
         }
+        rimeSingleSyllableCandidates = singles;
+        reversePinyin = mergeReverse(reversePinyin, reverse);
     }
 
     private void loadRimeAbbreviationLookup(Context context) {
+        Map<String, List<String>> abbrev = new HashMap<>();
+        Map<String, List<String>> reverse = new HashMap<>();
         try (InputStream input = context.getAssets().open(ABBREVIATION_ASSET);
              BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
-                parseAbbreviationIndexLine(line);
+                parseAbbreviationIndexLine(line, abbrev, reverse);
             }
         } catch (IOException ignored) {
         }
+        abbreviationDictionary = abbrev;
+        reversePinyin = mergeReverse(reversePinyin, reverse);
     }
 
-    private void parseRimePinyinLine(String line) {
+    private static Map<String, List<String>> mergeReverse(
+            Map<String, List<String>> existing,
+            Map<String, List<String>> extra
+    ) {
+        if (extra.isEmpty()) {
+            return existing;
+        }
+        Map<String, List<String>> merged = new HashMap<>(existing);
+        for (Map.Entry<String, List<String>> entry : extra.entrySet()) {
+            List<String> current = merged.get(entry.getKey());
+            if (current == null) {
+                merged.put(entry.getKey(), entry.getValue());
+            } else {
+                List<String> combined = new ArrayList<>(current);
+                for (String value : entry.getValue()) {
+                    if (!combined.contains(value)) {
+                        combined.add(value);
+                    }
+                }
+                merged.put(entry.getKey(), combined);
+            }
+        }
+        return merged;
+    }
+
+    private void parseRimePinyinLine(
+            String line,
+            Map<String, List<String>> singles,
+            Map<String, List<String>> reverse
+    ) {
         if (line.isEmpty() || line.charAt(0) == '#') {
             return;
         }
@@ -383,18 +453,15 @@ final class PinyinEngine {
         if (text.isEmpty() || pinyin.isEmpty()) {
             return;
         }
-        addRimeSingleSyllableCandidate(pinyin, text);
-        List<String> existing = reversePinyin.get(text);
-        if (existing == null) {
-            existing = new ArrayList<>();
-            reversePinyin.put(text, existing);
-        }
-        if (!existing.contains(pinyin)) {
-            existing.add(pinyin);
-        }
+        addRimeSingleSyllableCandidate(singles, pinyin, text);
+        addReversePinyin(reverse, text, pinyin);
     }
 
-    private void parseAbbreviationIndexLine(String line) {
+    private void parseAbbreviationIndexLine(
+            String line,
+            Map<String, List<String>> abbrev,
+            Map<String, List<String>> reverse
+    ) {
         if (line.isEmpty() || line.charAt(0) == '#') {
             return;
         }
@@ -411,11 +478,11 @@ final class PinyinEngine {
         if (!abbreviation.equals(abbreviationKeyForPinyinWithSpaces(pinyin))) {
             return;
         }
-        addReversePinyin(text, pinyin);
-        List<String> candidates = abbreviationDictionary.get(abbreviation);
+        addReversePinyin(reverse, text, pinyin);
+        List<String> candidates = abbrev.get(abbreviation);
         if (candidates == null) {
             candidates = new ArrayList<>();
-            abbreviationDictionary.put(abbreviation, candidates);
+            abbrev.put(abbreviation, candidates);
         }
         if (candidates.size() < MAX_ABBREVIATION_CANDIDATES_PER_KEY
                 && !candidates.contains(text)) {
@@ -423,18 +490,22 @@ final class PinyinEngine {
         }
     }
 
-    private void addReversePinyin(String text, String pinyin) {
-        List<String> existing = reversePinyin.get(text);
+    private void addReversePinyin(Map<String, List<String>> reverse, String text, String pinyin) {
+        List<String> existing = reverse.get(text);
         if (existing == null) {
             existing = new ArrayList<>();
-            reversePinyin.put(text, existing);
+            reverse.put(text, existing);
         }
         if (!existing.contains(pinyin)) {
             existing.add(pinyin);
         }
     }
 
-    private void addRimeSingleSyllableCandidate(String pinyin, String text) {
+    private void addRimeSingleSyllableCandidate(
+            Map<String, List<String>> singles,
+            String pinyin,
+            String text
+    ) {
         if (pinyin.indexOf(' ') >= 0 || text.codePointCount(0, text.length()) != 1) {
             return;
         }
@@ -442,10 +513,10 @@ final class PinyinEngine {
         if (codePoint < 0x4E00 || codePoint > 0x9FFF) {
             return;
         }
-        List<String> existing = rimeSingleSyllableCandidates.get(pinyin);
+        List<String> existing = singles.get(pinyin);
         if (existing == null) {
             existing = new ArrayList<>();
-            rimeSingleSyllableCandidates.put(pinyin, existing);
+            singles.put(pinyin, existing);
         }
         if (!existing.contains(text)) {
             existing.add(text);

@@ -5,16 +5,19 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.text.TextPaint;
 import android.util.AttributeSet;
+import android.util.SparseArray;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public final class IosKeyboardView extends View {
@@ -23,6 +26,7 @@ public final class IosKeyboardView extends View {
         void onBackspace();
     }
 
+    private static final long BACKSPACE_ARM_MS = 70;
     private static final long BACKSPACE_REPEAT_DELAY_MS = 430;
     private static final long BACKSPACE_REPEAT_INTERVAL_MS = 58;
     private static final float EMOJI_REF_WIDTH = 1320f;
@@ -47,15 +51,7 @@ public final class IosKeyboardView extends View {
     private final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final android.graphics.Path reusablePath = new android.graphics.Path();
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private final Runnable repeatBackspace = new Runnable() {
-        @Override
-        public void run() {
-            if (pressedKey != null && pressedKey.action == KeyAction.BACKSPACE && listener != null) {
-                listener.onBackspace();
-                handler.postDelayed(this, BACKSPACE_REPEAT_INTERVAL_MS);
-            }
-        }
-    };
+    private final SparseArray<Pointer> pointers = new SparseArray<>();
 
     private Listener listener;
     private KeyboardMode mode = KeyboardMode.LETTERS;
@@ -71,10 +67,17 @@ public final class IosKeyboardView extends View {
     private KeyboardKey pressedKey;
     private long lastShiftTapMs = 0L;
     private List<List<KeyboardKey>> rows;
+    private final List<KeyboardKey> flatKeys = new ArrayList<>();
+    private final List<KeyHitResolver.KeyRef> hitRefs = new ArrayList<>();
     private KeyPopupController popupController;
     private KeyPopupView popupView;
-    private boolean keyPopupEnabled = false;
+    private boolean keyPopupEnabled = true;
+    private boolean layoutDirty;
     private int touchSlop;
+    private float tapSlopPx;
+    private float hysteresisPx;
+    private float snapPx;
+    private float hitYOffsetPx;
     private float emojiScrollY = 0f;
     private float emojiLastTouchY = 0f;
     private float emojiDownX = 0f;
@@ -109,8 +112,8 @@ public final class IosKeyboardView extends View {
 
     void setMode(KeyboardMode mode) {
         if (this.mode != mode) {
+            cancelAllPointers();
             pressedKey = null;
-            handler.removeCallbacks(repeatBackspace);
             if (mode == KeyboardMode.EMOJI) {
                 emojiScrollY = 0f;
                 selectedEmojiCategory = 0;
@@ -122,6 +125,7 @@ public final class IosKeyboardView extends View {
     }
 
     void setLanguage(InputLanguage language) {
+        cancelAllPointers();
         this.language = language;
         shifted = language == InputLanguage.ENGLISH && mode == KeyboardMode.LETTERS && shifted;
         capsLocked = false;
@@ -130,6 +134,7 @@ public final class IosKeyboardView extends View {
     }
 
     void setChineseKeyboardLayout(ChineseKeyboardLayout chineseKeyboardLayout) {
+        cancelAllPointers();
         this.chineseKeyboardLayout = chineseKeyboardLayout;
         rebuildRows();
         invalidate();
@@ -191,6 +196,13 @@ public final class IosKeyboardView extends View {
     }
 
     @Override
+    protected void onDetachedFromWindow() {
+        cancelAllPointers();
+        handler.removeCallbacks(emojiRepeatBackspace);
+        super.onDetachedFromWindow();
+    }
+
+    @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         if (mode == KeyboardMode.EMOJI) {
@@ -215,56 +227,36 @@ public final class IosKeyboardView extends View {
         if (mode == KeyboardMode.EMOJI) {
             return handleEmojiTouchEvent(event);
         }
-        switch (event.getActionMasked()) {
+        int action = event.getActionMasked();
+        if (Build.VERSION.SDK_INT >= 26 && action == MotionEvent.ACTION_DOWN) {
+            requestUnbufferedDispatch(event);
+        }
+        int index = event.getActionIndex();
+        int pointerId = event.getPointerId(index);
+        switch (action) {
             case MotionEvent.ACTION_DOWN:
-                pressedKey = keyAt(event.getX(), event.getY());
-                if (pressedKey != null) {
-                    if (keyPopupEnabled) {
-                        applyPopupCommand(popupController.onPress(pressedKey, mode));
-                    }
-                    performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
-                    if (pressedKey.action == KeyAction.BACKSPACE) {
-                        if (listener != null) {
-                            listener.onBackspace();
-                        }
-                        handler.postDelayed(repeatBackspace, BACKSPACE_REPEAT_DELAY_MS);
-                    }
-                    invalidate();
-                }
+                cancelAllPointers();
+                onPointerDown(pointerId, event.getX(index), event.getY(index));
+                return true;
+            case MotionEvent.ACTION_POINTER_DOWN:
+                onPointerDown(pointerId, event.getX(index), event.getY(index));
                 return true;
             case MotionEvent.ACTION_MOVE:
-                KeyboardKey current = keyAt(event.getX(), event.getY());
-                if (current != pressedKey) {
-                    pressedKey = current;
-                    if (keyPopupEnabled) {
-                        if (current == null) {
-                            applyPopupCommand(popupController.onMoveOut());
-                        } else {
-                            applyPopupCommand(popupController.onMoveTo(current, mode));
-                        }
-                    }
-                    invalidate();
+                for (int i = 0; i < event.getPointerCount(); i++) {
+                    onPointerMove(event.getPointerId(i), event.getX(i), event.getY(i));
                 }
                 return true;
             case MotionEvent.ACTION_UP:
-                KeyboardKey released = pressedKey;
-                pressedKey = null;
-                handler.removeCallbacks(repeatBackspace);
-                invalidate();
-                if (keyPopupEnabled) {
-                    applyPopupCommand(popupController.onRelease());
-                }
-                if (released != null && released.action != KeyAction.BACKSPACE && listener != null) {
-                    listener.onKey(released);
-                }
+            case MotionEvent.ACTION_POINTER_UP:
+                onPointerUp(pointerId, event.getX(index), event.getY(index));
                 return true;
             case MotionEvent.ACTION_CANCEL:
-                pressedKey = null;
-                handler.removeCallbacks(repeatBackspace);
-                invalidate();
+                cancelAllPointers();
                 if (keyPopupEnabled) {
                     applyPopupCommand(popupController.onCancel());
                 }
+                flushDeferredLayout();
+                invalidate();
                 return true;
             default:
                 return true;
@@ -288,7 +280,7 @@ public final class IosKeyboardView extends View {
                         if (listener != null) {
                             listener.onBackspace();
                         }
-                        handler.postDelayed(repeatBackspace, BACKSPACE_REPEAT_DELAY_MS);
+                        handler.postDelayed(emojiRepeatBackspace, BACKSPACE_REPEAT_DELAY_MS);
                     }
                     invalidate();
                 }
@@ -298,11 +290,11 @@ public final class IosKeyboardView extends View {
                 float dyFromDown = event.getY() - emojiDownY;
                 float dy = event.getY() - emojiLastTouchY;
                 if (!emojiTouchMoved
-                        && (Math.abs(dx) > touchSlop || Math.abs(dyFromDown) > touchSlop)) {
+                        && (Math.abs(dx) > tapSlopPx || Math.abs(dyFromDown) > tapSlopPx)) {
                     emojiTouchMoved = true;
                     pressedKey = null;
                     pressedEmojiCategory = -1;
-                    handler.removeCallbacks(repeatBackspace);
+                    handler.removeCallbacks(emojiRepeatBackspace);
                 }
                 if (emojiTouchMoved) {
                     scrollEmojiBy(-dy);
@@ -314,7 +306,7 @@ public final class IosKeyboardView extends View {
                 int releasedCategory = emojiTouchMoved ? -1 : pressedEmojiCategory;
                 pressedKey = null;
                 pressedEmojiCategory = -1;
-                handler.removeCallbacks(repeatBackspace);
+                handler.removeCallbacks(emojiRepeatBackspace);
                 invalidate();
                 if (released != null && released.action != KeyAction.BACKSPACE && listener != null) {
                     listener.onKey(released);
@@ -326,7 +318,7 @@ public final class IosKeyboardView extends View {
                 pressedKey = null;
                 pressedEmojiCategory = -1;
                 emojiTouchMoved = false;
-                handler.removeCallbacks(repeatBackspace);
+                handler.removeCallbacks(emojiRepeatBackspace);
                 invalidate();
                 return true;
             default:
@@ -447,11 +439,19 @@ public final class IosKeyboardView extends View {
         textPaint.setColor(IosKeyboardTheme.TEXT_PRIMARY);
         textPaint.setTextAlign(Paint.Align.CENTER);
         touchSlop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
+        tapSlopPx = Math.max(touchSlop * 2.25f, dp(18));
+        hysteresisPx = dp(14);
+        snapPx = dp(26);
         popupController = new KeyPopupController();
         rebuildRows();
     }
 
     private void rebuildRows() {
+        if (pointers.size() > 0) {
+            layoutDirty = true;
+            return;
+        }
+        layoutDirty = false;
         rows = IosKeyboardLayout.rows(
                 mode,
                 shifted,
@@ -470,6 +470,7 @@ public final class IosKeyboardView extends View {
             return;
         }
         if (layoutFromIosReference(width, height)) {
+            rebuildHitIndex();
             return;
         }
 
@@ -494,6 +495,7 @@ public final class IosKeyboardView extends View {
                 layoutWeightedRow(width, row, y, rowHeight, outerPadding, horizontalGap);
             }
         }
+        rebuildHitIndex();
     }
 
     private boolean layoutFromIosReference(int width, int height) {
@@ -522,7 +524,8 @@ public final class IosKeyboardView extends View {
             return true;
         }
         if (mode == KeyboardMode.LETTERS
-                && chineseKeyboardLayout != ChineseKeyboardLayout.NINE_KEY) {
+                && (language == InputLanguage.ENGLISH
+                || chineseKeyboardLayout != ChineseKeyboardLayout.NINE_KEY)) {
             layoutQwertyLetters(width);
             ensureKeyboardBottomPadding(height);
             return true;
@@ -863,7 +866,7 @@ public final class IosKeyboardView extends View {
         if (key.action == KeyAction.SHIFT && (shifted || capsLocked)) {
             fill = keyPaint;
         }
-        if (key == pressedKey) {
+        if (isKeyPressed(key)) {
             fill = pressedFillFor(key);
         }
         RectF r = key.bounds;
@@ -1302,7 +1305,7 @@ public final class IosKeyboardView extends View {
     private boolean isNineKeyCaretKey(KeyboardKey key) {
         return language == InputLanguage.CHINESE
                 && chineseKeyboardLayout == ChineseKeyboardLayout.NINE_KEY
-                && "^^".equals(key.label);
+                && ("^^".equals(key.label) || "^^_".equals(key.label));
     }
 
     private boolean isPunctuationStripKey(KeyboardKey key) {
@@ -1326,30 +1329,309 @@ public final class IosKeyboardView extends View {
                 && rowIndex == 3;
     }
 
-    private KeyboardKey keyAt(float x, float y) {
-        if (punctuationStripVisible && rows.size() > 4) {
-            List<KeyboardKey> strip = rows.get(4);
-            if (!strip.isEmpty() && y >= strip.get(0).bounds.top && y <= strip.get(0).bounds.bottom) {
-                for (KeyboardKey key : strip) {
-                    if (key.hit(x, y)) {
-                        return key;
-                    }
-                }
-                return null;
+    private KeyboardKey locateKey(float x, float y, KeyboardKey sticky, boolean useHysteresis) {
+        if (hitRefs.isEmpty()) {
+            rebuildHitIndex();
+        }
+        float sampleY = KeyHitResolver.correctY(hitRefs, x, y, hitYOffsetPx);
+        int stickyId = indexOfKey(sticky);
+        float hysteresis = (useHysteresis
+                && sticky != null
+                && !KeyHitResolver.isStickyFunction(sticky.action))
+                ? hysteresisPx
+                : 0f;
+        int id = KeyHitResolver.hit(hitRefs, x, sampleY, stickyId, hysteresis, snapPx);
+        if (id < 0 || id >= flatKeys.size()) {
+            return null;
+        }
+        return flatKeys.get(id);
+    }
+
+    private int indexOfKey(KeyboardKey key) {
+        if (key == null) {
+            return -1;
+        }
+        for (int i = 0; i < flatKeys.size(); i++) {
+            if (flatKeys.get(i) == key) {
+                return i;
             }
         }
-        for (int rowIndex = rows.size() - 1; rowIndex >= 0; rowIndex--) {
+        return -1;
+    }
+
+    private void rebuildHitIndex() {
+        flatKeys.clear();
+        hitRefs.clear();
+        if (rows == null) {
+            return;
+        }
+        float minSide = Float.MAX_VALUE;
+        for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             if (isCoveredByPunctuationStrip(rowIndex)) {
                 continue;
             }
             List<KeyboardKey> row = rows.get(rowIndex);
-            for (KeyboardKey key : row) {
-                if (key.hit(x, y)) {
-                    return key;
-                }
+            for (int i = 0; i < row.size(); i++) {
+                KeyboardKey key = row.get(i);
+                int id = flatKeys.size();
+                flatKeys.add(key);
+                RectF b = key.bounds;
+                hitRefs.add(new KeyHitResolver.KeyRef(
+                        id, b.left, b.top, b.right, b.bottom,
+                        KeyHitResolver.isStickyFunction(key.action)));
+                minSide = Math.min(minSide, Math.min(Math.max(1f, b.width()), Math.max(1f, b.height())));
             }
         }
-        return null;
+        if (minSide < Float.MAX_VALUE) {
+            hysteresisPx = Math.max(dp(10), minSide * 0.32f);
+            snapPx = Math.max(dp(18), minSide * 0.42f);
+            tapSlopPx = Math.max(touchSlop * 2.25f, Math.max(dp(16), minSide * 0.38f));
+            hitYOffsetPx = Math.min(minSide * 0.22f, Math.max(dp(4), minSide * 0.12f));
+        }
+    }
+
+    private boolean isKeyPressed(KeyboardKey key) {
+        if (key == null) {
+            return false;
+        }
+        if (mode == KeyboardMode.EMOJI) {
+            return key == pressedKey;
+        }
+        for (int i = 0; i < pointers.size(); i++) {
+            if (pointers.valueAt(i).pressedKey == key) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void onPointerDown(int pointerId, float x, float y) {
+        commitRollover();
+        Pointer pointer = new Pointer(pointerId);
+        pointer.downX = x;
+        pointer.downY = y;
+        pointer.lastX = x;
+        pointer.lastY = y;
+        pointer.downKey = locateKey(x, y, null, false);
+        pointer.pressedKey = pointer.downKey;
+        pointers.put(pointerId, pointer);
+        if (pointer.downKey != null) {
+            if (keyPopupEnabled && !sensitiveInput) {
+                applyPopupCommand(popupController.onPress(pointer.downKey, mode));
+            }
+            performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+            if (pointer.downKey.action == KeyAction.BACKSPACE) {
+                handler.postDelayed(pointer.armBackspace, BACKSPACE_ARM_MS);
+            }
+            invalidate();
+        }
+    }
+
+    private void onPointerMove(int pointerId, float x, float y) {
+        Pointer pointer = pointers.get(pointerId);
+        if (pointer == null) {
+            return;
+        }
+        pointer.lastX = x;
+        pointer.lastY = y;
+        KeyboardKey current = locateKey(x, y, pointer.pressedKey, true);
+        if (current == pointer.pressedKey) {
+            return;
+        }
+        boolean leftBackspace = pointer.pressedKey != null
+                && pointer.pressedKey.action == KeyAction.BACKSPACE;
+        pointer.pressedKey = current;
+        if (leftBackspace && (current == null || current.action != KeyAction.BACKSPACE)) {
+            pointer.cancelBackspace();
+        }
+        if (!pointer.consumed
+                && current != null
+                && current.action == KeyAction.BACKSPACE
+                && !pointer.backspaceArmed) {
+            pointer.cancelBackspace();
+            handler.postDelayed(pointer.armBackspace, BACKSPACE_ARM_MS);
+        }
+        if (keyPopupEnabled && !sensitiveInput) {
+            if (current == null) {
+                applyPopupCommand(popupController.onMoveOut());
+            } else {
+                applyPopupCommand(popupController.onMoveTo(current, mode));
+            }
+        }
+        invalidate();
+    }
+
+    private void onPointerUp(int pointerId, float x, float y) {
+        Pointer pointer = pointers.get(pointerId);
+        if (pointer == null) {
+            return;
+        }
+        pointer.cancelBackspace();
+        KeyboardKey fireKey = pointer.consumed ? null : resolveFireKey(pointer, x, y);
+        boolean armed = pointer.backspaceArmed;
+        pointers.remove(pointerId);
+        if (pointers.size() == 0) {
+            if (keyPopupEnabled) {
+                applyPopupCommand(popupController.onRelease());
+            }
+        } else {
+            updatePopupForRemainingPointers();
+        }
+        invalidate();
+        if (listener != null && fireKey != null) {
+            if (fireKey.action == KeyAction.BACKSPACE) {
+                if (!armed) {
+                    listener.onBackspace();
+                }
+            } else {
+                dispatchKey(fireKey);
+            }
+        }
+        flushDeferredLayout();
+    }
+
+    private KeyboardKey resolveFireKey(Pointer pointer, float x, float y) {
+        KeyboardKey upKey = locateKey(x, y, null, false);
+        boolean tap = KeyHitResolver.isTap(pointer.downX, pointer.downY, x, y, tapSlopPx);
+        boolean startedOnBackspace = pointer.downKey != null
+                && pointer.downKey.action == KeyAction.BACKSPACE;
+        if (startedOnBackspace) {
+            if (pointer.backspaceArmed) {
+                return null;
+            }
+            if (tap || (upKey != null && upKey.action == KeyAction.BACKSPACE)) {
+                return pointer.downKey;
+            }
+            return upKey;
+        }
+        boolean downSticky = pointer.downKey != null
+                && KeyHitResolver.isStickyFunction(pointer.downKey.action);
+        int downId = indexOfKey(pointer.downKey);
+        int upId = indexOfKey(upKey);
+        Integer fireId = KeyHitResolver.resolveRelease(downId, upId, tap, downSticky);
+        if (fireId == null || fireId < 0 || fireId >= flatKeys.size()) {
+            return null;
+        }
+        return flatKeys.get(fireId);
+    }
+
+    private void commitRollover() {
+        for (int i = 0; i < pointers.size(); i++) {
+            Pointer held = pointers.valueAt(i);
+            if (held.consumed || held.downKey == null) {
+                continue;
+            }
+            if (!KeyHitResolver.shouldRolloverCommit(held.downKey.action)) {
+                continue;
+            }
+            held.consumed = true;
+            held.cancelBackspace();
+            KeyboardKey fireKey = resolveFireKey(held, held.lastX, held.lastY);
+            if (fireKey != null && fireKey.action != KeyAction.BACKSPACE) {
+                dispatchKey(fireKey);
+            }
+        }
+    }
+
+    private void dispatchKey(KeyboardKey key) {
+        if (listener == null || key == null) {
+            return;
+        }
+        if (key.action == KeyAction.CHARACTER) {
+            String output = KeyHitResolver.applyLetterCase(key.output, shifted || capsLocked);
+            if (output != null && !output.equals(key.output)) {
+                KeyboardKey cased = new KeyboardKey(key.label, output, key.action, key.widthUnits);
+                cased.bounds.set(key.bounds);
+                listener.onKey(cased);
+                return;
+            }
+        }
+        listener.onKey(key);
+    }
+
+    private void updatePopupForRemainingPointers() {
+        if (!keyPopupEnabled || sensitiveInput) {
+            applyPopupCommand(popupController.onMoveOut());
+            return;
+        }
+        for (int i = pointers.size() - 1; i >= 0; i--) {
+            KeyboardKey key = pointers.valueAt(i).pressedKey;
+            if (key != null) {
+                applyPopupCommand(popupController.onMoveTo(key, mode));
+                return;
+            }
+        }
+        applyPopupCommand(popupController.onMoveOut());
+    }
+
+    private void cancelAllPointers() {
+        for (int i = 0; i < pointers.size(); i++) {
+            pointers.valueAt(i).cancelBackspace();
+        }
+        pointers.clear();
+    }
+
+    private void flushDeferredLayout() {
+        if (layoutDirty && pointers.size() == 0) {
+            rebuildRows();
+            invalidate();
+        }
+    }
+
+    private final Runnable emojiRepeatBackspace = new Runnable() {
+        @Override
+        public void run() {
+            if (pressedKey != null && pressedKey.action == KeyAction.BACKSPACE && listener != null) {
+                listener.onBackspace();
+                handler.postDelayed(this, BACKSPACE_REPEAT_INTERVAL_MS);
+            }
+        }
+    };
+
+    private final class Pointer {
+        final int id;
+        KeyboardKey downKey;
+        KeyboardKey pressedKey;
+        float downX;
+        float downY;
+        float lastX;
+        float lastY;
+        boolean backspaceArmed;
+        boolean consumed;
+        final Runnable armBackspace = new Runnable() {
+            @Override
+            public void run() {
+                if (consumed || pressedKey == null
+                        || pressedKey.action != KeyAction.BACKSPACE
+                        || listener == null) {
+                    return;
+                }
+                backspaceArmed = true;
+                listener.onBackspace();
+                handler.postDelayed(repeatBackspace, BACKSPACE_REPEAT_DELAY_MS - BACKSPACE_ARM_MS);
+            }
+        };
+        final Runnable repeatBackspace = new Runnable() {
+            @Override
+            public void run() {
+                if (consumed || pressedKey == null
+                        || pressedKey.action != KeyAction.BACKSPACE
+                        || listener == null) {
+                    return;
+                }
+                listener.onBackspace();
+                handler.postDelayed(this, BACKSPACE_REPEAT_INTERVAL_MS);
+            }
+        };
+
+        Pointer(int id) {
+            this.id = id;
+        }
+
+        void cancelBackspace() {
+            handler.removeCallbacks(armBackspace);
+            handler.removeCallbacks(repeatBackspace);
+        }
     }
 
     private int dp(float value) {

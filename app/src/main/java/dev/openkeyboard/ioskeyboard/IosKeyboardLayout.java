@@ -3,6 +3,7 @@ package dev.openkeyboard.ioskeyboard;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 final class IosKeyboardLayout {
     static final float IOS_ROW_3_SIDE_KEY_UNITS = 1.40f;
@@ -316,7 +317,7 @@ final class IosKeyboardLayout {
     private static void addChars(List<KeyboardKey> keys, String chars, boolean uppercase) {
         for (int i = 0; i < chars.length(); i++) {
             String lower = String.valueOf(chars.charAt(i));
-            String label = uppercase ? lower.toUpperCase() : lower;
+            String label = uppercase ? lower.toUpperCase(Locale.ROOT) : lower;
             keys.add(new KeyboardKey(label, label, KeyAction.CHARACTER, 1.0f));
         }
     }
