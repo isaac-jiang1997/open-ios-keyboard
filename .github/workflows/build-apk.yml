@@ -12,7 +12,7 @@ concurrency:
 jobs:
   build:
     name: assembleDebug
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
       contents: read
@@ -22,18 +22,22 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
           cache: gradle
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install platform, NDK, and CMake
+      - name: Install Android SDK packages
         run: |
-          sdkmanager --install \
+          set -euo pipefail
+          : "${ANDROID_HOME:=${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          SM=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort | tail -1)
+          echo "Using sdkmanager at $SM"
+          yes | "$SM" --licenses >/dev/null || true
+          "$SM" --install \
             "platforms;android-35" \
             "build-tools;35.0.0" \
             "ndk;28.0.13004108" \
