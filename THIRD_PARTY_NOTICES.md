@@ -67,6 +67,15 @@ constants, so the headers are vendored for the native build.
 Header-only UTF-8 helpers used by librime. Vendored because the NDK
 does not provide them.
 
+## Darts-clone
+
+- Project: darts-clone
+- Source: https://github.com/s-yata/darts-clone
+- License: BSD-2-Clause
+- Included files: `app/src/main/cpp/include/darts.h`
+
+Header-only double-array trie used by librime's prism dictionary.
+
 ## OpenCC
 
 - Project: OpenCC
